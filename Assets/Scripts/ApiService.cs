@@ -97,4 +97,79 @@ public class ApiService : MonoBehaviour
             }
         }
     }
+
+    /// <summary>
+    /// Mengambil data progres LENGKAP seorang player (termasuk checkpoint).
+    /// Memanggil GET /api/progress/{playerName}
+    /// </summary>
+    public IEnumerator GetProgress(string playerName,
+                                   Action<PlayerProgress> onSuccess,
+                                   Action<string> onError)
+    {
+        // Pastikan nama player aman untuk URL
+        string encodedPlayerName = System.Uri.EscapeDataString(playerName);
+        string url = $"{BASE_URL}/api/progress/{encodedPlayerName}";
+
+        using (UnityWebRequest request = UnityWebRequest.Get(url))
+        {
+            request.downloadHandler = new DownloadHandlerBuffer();
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                // Sukses (Code 200 OK)
+                string jsonResponse = request.downloadHandler.text;
+                PlayerProgress progress = JsonConvert.DeserializeObject<PlayerProgress>(jsonResponse);
+                onSuccess?.Invoke(progress);
+            }
+            else if (request.responseCode == 404)
+            {
+                // Ini BUKAN error, ini player baru.
+                // Kirim 'null' untuk menandakan "tidak ada data"
+                onSuccess?.Invoke(null);
+            }
+            else
+            {
+                // Ini error sungguhan (server mati, dll)
+                Debug.LogError($"Error Get Progress: {request.error} | {request.downloadHandler.text}");
+                onError?.Invoke(request.error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Memberitahu server bahwa player telah summit.
+    /// Memanggil POST /api/progress/summit/{playerName}
+    /// </summary>
+    public System.Collections.IEnumerator IncrementSummit(string playerName,
+                                     System.Action<PlayerProgress> onSuccess,
+                                     System.Action<string> onError)
+    {
+        string encodedPlayerName = System.Uri.EscapeDataString(playerName);
+        string url = $"{BASE_URL}/api/progress/summit/{encodedPlayerName}";
+
+        // Kita pakai POST tapi tidak mengirim body, hanya URL
+        using (UnityEngine.Networking.UnityWebRequest request =
+               UnityEngine.Networking.UnityWebRequest.PostWwwForm(url, (string)null))
+        {
+            // Set header agar server tahu kita tidak kirim data
+            request.SetRequestHeader("Content-Length", "0");
+            request.downloadHandler = new UnityEngine.Networking.DownloadHandlerBuffer();
+
+            yield return request.SendWebRequest();
+
+            if (request.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                string json = request.downloadHandler.text;
+                PlayerProgress updatedProgress = Newtonsoft.Json.JsonConvert.DeserializeObject<PlayerProgress>(json);
+                onSuccess?.Invoke(updatedProgress);
+            }
+            else
+            {
+                Debug.LogError($"Error Increment Summit: {request.error}");
+                onError?.Invoke(request.error);
+            }
+        }
+    }
 }

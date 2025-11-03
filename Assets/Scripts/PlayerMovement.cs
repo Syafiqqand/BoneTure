@@ -23,14 +23,12 @@ public class PlayerMovement : MonoBehaviour
     {
         characterController = GetComponent<CharacterController>();
 
-        // --- BERUBAH ---
         if (cameraTransform == null)
         {
             Debug.LogError("Error: 'Camera Transform' belum di-set!");
         }
         else
         {
-            // Ambil script CameraFollow dari referensi cameraTransform
             cameraFollowScript = cameraTransform.GetComponent<CameraFollow>();
             if (cameraFollowScript == null)
             {
@@ -39,7 +37,12 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
+        // --- INI MODIFIKASINYA ---
+        // Kita tetap set ini, tapi kita sebut sebagai 'default'
+        // CheckpointManager akan menimpanya jika ada data load
         spawnPoint = transform.position;
+        Debug.Log("Spawn point default di-set ke " + spawnPoint);
+        // --- AKHIR MODIFIKASI ---
     }
 
     private void Update()
