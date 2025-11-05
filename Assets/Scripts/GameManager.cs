@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
 using TMPro;
-using System.Collections; // <-- WAJIB: Untuk Coroutine (delay)
+using System.Collections;
 
 public class GameManager : MonoBehaviour
 {
@@ -20,22 +20,20 @@ public class GameManager : MonoBehaviour
     [Header("Pengaturan")]
     [SerializeField] private string mainMenuSceneName = "MainMenu";
 
-    // --- STATE BARU ---
-    [SerializeField] private float resetDelay = 2.0f; // Delay 2 detik
-    private bool isResetting = false; // Mencegah spam reset
-    // ------------------
-
+    [SerializeField] private float resetDelay = 2.0f;
+    private bool isResetting = false;
     private bool isPaused = false;
     private int currentSummitCount = 0;
 
+    private TimeManager timeManager;
+    private bool isReadyForSummit = false;
+
     private void Awake()
     {
-        if (Instance != null)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null) { Destroy(gameObject); return; }
         Instance = this;
+
+        timeManager = GetComponent<TimeManager>();
     }
 
     private void Start()
@@ -55,6 +53,7 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    // ... (PauseGame, ResumeGame, GoToMainMenu, InitializeSummitCount biarkan sama) ...
     public void PauseGame()
     {
         isPaused = true;
@@ -63,7 +62,6 @@ public class GameManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
-
     public void ResumeGame()
     {
         isPaused = false;
@@ -72,27 +70,28 @@ public class GameManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
-
     public void GoToMainMenu()
     {
+        Debug.Log("Menyimpan progres sebelum kembali ke Main Menu...");
+        CheckpointManager.Instance.SaveProgressToApi();
         Time.timeScale = 1f;
         SceneManager.LoadScene(mainMenuSceneName);
     }
-
     public void InitializeSummitCount(int countFromApi)
     {
         currentSummitCount = countFromApi;
         UpdateSummitUi();
     }
+    // ... (Akhir dari fungsi yang tidak berubah) ...
 
-    // --- LOGIKA SUMMIT DIPERBARUI ---
+
+    // --- FUNGSI INI DIMODIFIKASI (SANGAT PENTING) ---
     public void PlayerReachedSummit()
     {
-        // Cek ke CheckpointManager apakah player sudah siap
-        if (!CheckpointManager.Instance.IsReadyForSummit)
+        if (!this.isReadyForSummit)
         {
             Debug.Log("Player menyentuh summit, tapi belum menyelesaikan semua checkpoint.");
-            return; // Tidak melakukan apa-apa
+            return;
         }
 
         string username = CheckpointManager.Instance.CurrentUsername;
@@ -100,30 +99,32 @@ public class GameManager : MonoBehaviour
 
         Debug.Log("Player reached summit! Menyimpan ke API...");
 
-        // Matikan status 'siap' agar tidak di-spam
-        CheckpointManager.Instance.AcknowledgeSummit();
+        this.SetReadyForSummit(false);
 
-        StartCoroutine(ApiService.Instance.IncrementSummit(username,
+        // 1. Ambil waktu final DARI TimeManager
+        float finalTime = timeManager.GetCurrentTime();
+
+        // 2. Hentikan timer LOKAL dan reset display ke 00:00
+        timeManager.StopTimerAndResetDisplay();
+
+        // 3. Kirim 'finalTime' ke API
+        StartCoroutine(ApiService.Instance.IncrementSummit(username, finalTime,
             (updatedProgress) => {
-                // Sukses! Update UI
+                // (Callback sukses dari API)
                 currentSummitCount = updatedProgress.SummitCount;
                 UpdateSummitUi();
+                // Kita tidak melakukan apa-apa lagi. Timer sudah stop.
             },
             (error) => {
                 Debug.LogError("Gagal menyimpan summit ke API: " + error);
-                // (Harus bagaimana? Kembalikan status 'isReadyForSummit'?)
-                // Untuk saat ini, biarkan.
             }
         ));
     }
 
-    // --- LOGIKA RESET DIPERBARUI ---
-    // Fungsi ini dipanggil oleh ResetTrigger
+    // --- FUNGSI INI DIMODIFIKASI ---
     public void TriggerResetSequence()
     {
-        // Jika sedang dalam proses reset, jangan lakukan apa-apa
         if (isResetting) return;
-
         StartCoroutine(ResetSequenceCoroutine());
     }
 
@@ -132,17 +133,16 @@ public class GameManager : MonoBehaviour
         isResetting = true;
         Debug.Log("Player menyentuh area reset. Teleport dalam 2 detik...");
 
-        // Tampilkan UI "Loading..." atau "Resetting..." di sini (opsional)
+        // 1. Beritahu TimeManager untuk SIAP JALAN (State = WaitingToStart)
+        timeManager.ResetTimerAndStartWaiting();
 
-        // Tunggu 2 detik
+        // 2. Reset checkpoint di API
+        CheckpointManager.Instance.ResetCheckpointsToStart();
+
         yield return new WaitForSeconds(resetDelay);
 
         Debug.Log("Resetting now!");
 
-        // 1. Reset Checkpoint (panggil CheckpointManager)
-        CheckpointManager.Instance.ResetCheckpointsToStart();
-
-        // 2. Teleport Player ke Basecamp
         PlayerMovement player = FindFirstObjectByType<PlayerMovement>();
         if (player != null && basecampSpawnPoint != null)
         {
@@ -150,7 +150,7 @@ public class GameManager : MonoBehaviour
             player.Respawn();
         }
 
-        isResetting = false; // Siap untuk di-reset lagi
+        isResetting = false;
     }
     // ---------------------------------
 
@@ -161,4 +161,38 @@ public class GameManager : MonoBehaviour
             summitUiText.text = $"Summit: {currentSummitCount}";
         }
     }
+
+    public void SetReadyForSummit(bool isReady)
+    {
+        this.isReadyForSummit = isReady;
+    }
+
+    // --- FUNGSI 'PASS-THROUGH' INI DIMODIFIKASI ---
+
+    public void InitializeTimer(float time)
+    {
+        timeManager.InitializeTimer(time);
+    }
+
+    public float GetCurrentTime()
+    {
+        return timeManager.GetCurrentTime();
+    }
+
+    // --- TAMBAHKAN FUNGSI BARU INI ---
+    /// <summary>
+    /// Dipanggil oleh CheckpointManager saat player baru / load gagal
+    /// untuk memaksa timer ke state "WaitingToStart".
+    /// </summary>
+    public void ResetTimerAndStartWaiting()
+    {
+        if (timeManager != null)
+        {
+            timeManager.ResetTimerAndStartWaiting();
+        }
+    }
+
+    // Fungsi ini sekarang digantikan oleh TimeManager
+    // public void ResetTimer(float time, bool autoStart)
+    // { ... }
 }

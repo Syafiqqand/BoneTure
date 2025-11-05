@@ -1,9 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
-using TMPro; 
-using System.Collections.Generic; 
-using System.Linq; 
+using TMPro;
+using System.Collections.Generic;
+using System.Linq;
 
 public class MainMenuManager : MonoBehaviour
 {
@@ -11,32 +11,49 @@ public class MainMenuManager : MonoBehaviour
     [SerializeField] private GameObject mainMenuPanel;
     [SerializeField] private GameObject usernamePanel;
     [SerializeField] private GameObject loadPanel;
+    [SerializeField] private GameObject leaderboardPanel; // <-- BARU
 
     [Header("Main Menu Buttons")]
     [SerializeField] private Button playButton;
     [SerializeField] private Button loadButton;
+    [SerializeField] private Button leaderboardButton; // <-- BARU
     [SerializeField] private Button exitButton;
 
     [Header("Username Panel")]
     [SerializeField] private TMP_InputField usernameInputField;
-    [SerializeField] private Button saveUsernameButton; 
-    [SerializeField] private Button backFromUserButton; 
+    [SerializeField] private Button saveUsernameButton;
+    [SerializeField] private Button backFromUserButton;
 
     [Header("Load Panel")]
     [SerializeField] private TMP_Dropdown loadDropdown;
-    [SerializeField] private Button loadProfileButton; 
-    [SerializeField] private Button backFromLoadButton; 
+    [SerializeField] private Button loadProfileButton;
+    [SerializeField] private Button backFromLoadButton;
+
+    [Header("Leaderboard Panel")] // <-- SECTION BARU
+    [SerializeField] private Button selectSummitButton; // Tombol tab "Summit"
+    [SerializeField] private Button selectTimeButton;   // Tombol tab "Time"
+    [SerializeField] private Button backFromLeaderboardButton;
+    [SerializeField] private GameObject summitLeaderboardObject; // Panel/Object yg berisi tabel Summit
+    [SerializeField] private GameObject timeLeaderboardObject; // Panel/Object yg berisi tabel Time
 
     [Header("Pengaturan")]
-    [SerializeField] private string gameSceneName = "Level_1"; 
+    [SerializeField] private string gameSceneName = "Gameplay"; // (Pastikan nama ini benar)
 
-    private const string PROFILES_KEY = "GameProfiles"; 
-    private const string CURRENT_USER_KEY = "CurrentPlayer"; 
+    // private const string PROFILES_KEY = "GameProfiles"; // (Kita tidak pakai ini lagi)
+    private const string CURRENT_USER_KEY = "CurrentPlayer";
+
+    void Awake()
+    {
+        // Paksa kursor agar terlihat dan tidak terkunci
+        // dan reset TimeScale SEBELUM scene-nya mulai.
+        Time.timeScale = 1f;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
 
     void Start()
     {
-        // 1. Setup Button Listeners
-        // Main Menu
+        // --- Setup Listeners ---
         playButton.onClick.AddListener(OnPlayClicked);
         loadButton.onClick.AddListener(OnLoadClicked);
         exitButton.onClick.AddListener(OnExitClicked);
@@ -49,7 +66,14 @@ public class MainMenuManager : MonoBehaviour
         loadProfileButton.onClick.AddListener(OnLoadProfileClicked);
         backFromLoadButton.onClick.AddListener(ShowMainMenu);
 
-        // 2. Set Panel Awal
+        // --- Listeners BARU ---
+        leaderboardButton.onClick.AddListener(OnLeaderboardClicked);
+        backFromLeaderboardButton.onClick.AddListener(ShowMainMenu);
+        selectSummitButton.onClick.AddListener(ShowSummitLeaderboard);
+        selectTimeButton.onClick.AddListener(ShowTimeLeaderboard);
+        // --------------------
+
+        // Set Panel Awal
         ShowMainMenu();
     }
 
@@ -60,6 +84,7 @@ public class MainMenuManager : MonoBehaviour
         mainMenuPanel.SetActive(true);
         usernamePanel.SetActive(false);
         loadPanel.SetActive(false);
+        leaderboardPanel.SetActive(false); // <-- BARU
     }
 
     private void OnPlayClicked()
@@ -72,69 +97,80 @@ public class MainMenuManager : MonoBehaviour
     {
         mainMenuPanel.SetActive(false);
         loadPanel.SetActive(true);
-
-        // Panggil fungsi untuk mengisi dropdown saat panel dibuka
         PopulateLoadDropdown();
     }
 
     private void OnExitClicked()
     {
-        Debug.Log("Keluar dari game...");
-        // Ini hanya berfungsi di build, tidak di Editor
         Application.Quit();
-
-        // Untuk tes di Editor
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #endif
     }
+
+    // --- FUNGSI BARU UNTUK LEADERBOARD ---
+
+    private void OnLeaderboardClicked()
+    {
+        mainMenuPanel.SetActive(false);
+        leaderboardPanel.SetActive(true);
+        // Default, tunjukkan leaderboard Summit
+        ShowSummitLeaderboard();
+    }
+
+    private void ShowSummitLeaderboard()
+    {
+        summitLeaderboardObject.SetActive(true);
+        timeLeaderboardObject.SetActive(false);
+
+        // Refresh data saat tab diklik (jika perlu)
+        if (summitLeaderboardObject.GetComponent<LeaderboardManager>() != null)
+        {
+            summitLeaderboardObject.GetComponent<LeaderboardManager>().RefreshLeaderboard();
+        }
+    }
+
+    private void ShowTimeLeaderboard()
+    {
+        summitLeaderboardObject.SetActive(false);
+        timeLeaderboardObject.SetActive(true);
+
+        // Refresh data saat tab diklik (jika perlu)
+        if (timeLeaderboardObject.GetComponent<LeaderboardTimeManager>() != null)
+        {
+            timeLeaderboardObject.GetComponent<LeaderboardTimeManager>().RefreshLeaderboard();
+        }
+    }
+    // ------------------------------------
+
 
     // --- FUNGSI LOGIKA PROFIL (Username & Load) ---
 
     private void OnSaveUsernameClicked()
     {
         string newName = usernameInputField.text.Trim();
+        if (string.IsNullOrWhiteSpace(newName)) return;
 
-        if (string.IsNullOrWhiteSpace(newName))
-        {
-            Debug.LogWarning("Nama tidak boleh kosong!");
-            return;
-        }
-
-        // 1. Buat data baru untuk dikirim
         PlayerProgress newPlayerData = new PlayerProgress
         {
             PlayerName = newName,
-            CheckpointIndex = 0 // Player baru selalu mulai dari checkpoint 0
+            CheckpointIndex = -1,
+            CurrentElapsedTime = 0,
+            SummitCount = 0,
+            BestTimeInSeconds = 999999
         };
 
-        // 2. Nonaktifkan tombol agar tidak di-spam
         saveUsernameButton.interactable = false;
 
-        // 3. Panggil API Service (ini akan berjalan di background)
         StartCoroutine(ApiService.Instance.SaveProgress(
             newPlayerData,
-
-            // Ini adalah 'onSuccess' (jika berhasil)
-            (resultFromServer) => {
-
-                Debug.Log($"Player {resultFromServer.PlayerName} berhasil disimpan/login!");
-
-                // Simpan nama player yg aktif SEKARANG ke PlayerPrefs
-                // agar scene game-mu (Level_1) tahu siapa yg main
-                PlayerPrefs.SetString(CURRENT_USER_KEY, resultFromServer.PlayerName);
+            (result) => {
+                PlayerPrefs.SetString(CURRENT_USER_KEY, result.PlayerName);
                 PlayerPrefs.Save();
-
-                // Pindah ke Scene Game
                 SceneManager.LoadScene(gameSceneName);
             },
-
-            // Ini adalah 'onError' (jika gagal)
             (errorMsg) => {
                 Debug.LogError($"Gagal menyimpan username: {errorMsg}");
-                // Tampilkan pesan error ke player (opsional)
-
-                // Nyalakan tombol lagi agar bisa dicoba ulang
                 saveUsernameButton.interactable = true;
             }
         ));
@@ -142,31 +178,24 @@ public class MainMenuManager : MonoBehaviour
 
     private void PopulateLoadDropdown()
     {
-        loadDropdown.ClearOptions(); // Kosongkan dropdown
-        loadDropdown.AddOptions(new List<string> { "Loading..." }); // Tampilkan status
-        loadProfileButton.interactable = false; // Matikan tombol selagi loading
+        loadDropdown.ClearOptions();
+        loadDropdown.AddOptions(new List<string> { "Loading..." });
+        loadProfileButton.interactable = false;
 
-        // Panggil coroutine baru untuk mengambil data dari API
         StartCoroutine(ApiService.Instance.GetAllNames(
-
-            // Ini adalah callback 'onSuccess' (jika berhasil)
             (namesFromApi) => {
-                loadDropdown.ClearOptions(); // Hapus "Loading..."
-
-                if (namesFromApi.Count == 0)
+                loadDropdown.ClearOptions();
+                if (namesFromApi == null || namesFromApi.Count == 0)
                 {
                     loadDropdown.AddOptions(new List<string> { "Belum ada profil..." });
                     loadProfileButton.interactable = false;
                 }
                 else
                 {
-                    // Masukkan semua nama dari API ke dropdown
                     loadDropdown.AddOptions(namesFromApi);
                     loadProfileButton.interactable = true;
                 }
             },
-
-            // Ini adalah callback 'onError' (jika gagal)
             (error) => {
                 loadDropdown.ClearOptions();
                 loadDropdown.AddOptions(new List<string> { "Gagal memuat profil..." });
@@ -177,37 +206,15 @@ public class MainMenuManager : MonoBehaviour
 
     private void OnLoadProfileClicked()
     {
-        // Cek apakah ada profil valid
-        if (loadDropdown.options[0].text == "Belum ada profil...")
+        if (loadDropdown.options[0].text.StartsWith("Belum ada") ||
+            loadDropdown.options[0].text.StartsWith("Gagal"))
         {
             return;
         }
 
-        // 1. Ambil nama yang dipilih dari dropdown
         string selectedName = loadDropdown.options[loadDropdown.value].text;
-
-        // 2. Set nama ini sebagai "Current User"
         PlayerPrefs.SetString(CURRENT_USER_KEY, selectedName);
         PlayerPrefs.Save();
-
-        // 3. Pindah ke Scene Game
-        Debug.Log($"Melanjutkan game sebagai: {selectedName}");
         SceneManager.LoadScene(gameSceneName);
-    }
-
-    // --- FUNGSI HELPER (BANTUAN) ---
-
-    private List<string> GetSavedProfiles()
-    {
-        // Ambil string panjang dari PlayerPrefs
-        string profilesString = PlayerPrefs.GetString(PROFILES_KEY, string.Empty);
-
-        if (string.IsNullOrEmpty(profilesString))
-        {
-            return new List<string>(); // Kembalikan list kosong
-        }
-
-        // Pecah string-nya berdasarkan ';'
-        return profilesString.Split(';').ToList();
     }
 }

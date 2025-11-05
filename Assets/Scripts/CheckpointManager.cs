@@ -17,20 +17,11 @@ public class CheckpointManager : MonoBehaviour
     private const string CURRENT_USER_KEY = "CurrentPlayer";
 
     public string CurrentUsername { get; private set; }
-
-    // --- STATE BARU ---
-    // 'true' HANYA jika player sudah menginjak checkpoint terakhir
-    public bool IsReadyForSummit { get; private set; } = false;
-
     private int currentCheckpointIndex = -1;
 
     private void Awake()
     {
-        if (Instance != null)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null) { Destroy(gameObject); return; }
         Instance = this;
     }
 
@@ -44,7 +35,13 @@ public class CheckpointManager : MonoBehaviour
         CurrentUsername = PlayerPrefs.GetString(CURRENT_USER_KEY);
         if (string.IsNullOrEmpty(CurrentUsername))
         {
+            Debug.Log("Tidak ada username! Memulai game tanpa progress.");
             UpdateUiText();
+
+            // --- PERBAIKAN BUG ---
+            // Player baru, paksa timer ke "WaitingToStart"
+            GameManager.Instance.ResetTimerAndStartWaiting();
+            // -------------------
             return;
         }
 
@@ -52,35 +49,46 @@ public class CheckpointManager : MonoBehaviour
             (loadedProgress) => {
                 if (loadedProgress != null)
                 {
+                    // Player ditemukan di DB
                     currentCheckpointIndex = loadedProgress.CheckpointIndex;
                     TeleportPlayerToCheckpoint(currentCheckpointIndex);
+                    GameManager.Instance.InitializeSummitCount(loadedProgress.SummitCount);
 
-                    if (GameManager.Instance != null)
-                    {
-                        GameManager.Instance.InitializeSummitCount(loadedProgress.SummitCount);
-                    }
+                    // Panggil 'InitializeTimer' (ini sudah benar)
+                    GameManager.Instance.InitializeTimer(loadedProgress.CurrentElapsedTime);
 
-                    // Cek apakah player terakhir save di checkpoint terakhir
                     if (currentCheckpointIndex == allCheckpointsInOrder.Length - 1)
                     {
-                        IsReadyForSummit = true;
+                        GameManager.Instance.SetReadyForSummit(true);
                     }
                 }
                 else
                 {
-                    if (GameManager.Instance != null)
-                    {
-                        GameManager.Instance.InitializeSummitCount(0);
-                    }
+                    // Player TIDAK ditemukan di DB (player baru)
+                    GameManager.Instance.InitializeSummitCount(0);
+
+                    // --- PERBAIKAN BUG ---
+                    // Player baru, paksa timer ke "WaitingToStart"
+                    GameManager.Instance.ResetTimerAndStartWaiting();
+                    // -------------------
                 }
                 UpdateUiText();
             },
             (error) => {
-                Debug.LogError($"Gagal load data: {error}.");
+                // Terjadi error API
+                Debug.LogError($"Gagal load data: {error}. Memulai game tanpa progress.");
                 UpdateUiText();
+
+                // --- PERBAIKAN BUG ---
+                // Gagal load, paksa timer ke "WaitingToStart"
+                GameManager.Instance.ResetTimerAndStartWaiting();
+                // -------------------
             }
         ));
     }
+
+    // ... (Sisa script CheckpointManager.cs TIDAK BERUBAH) ...
+    // ... (ActivateCheckpoint, SaveProgressToApi, UpdateUiText, dll...) ...
 
     public void ActivateCheckpoint(CheckpointObject checkpoint)
     {
@@ -107,31 +115,32 @@ public class CheckpointManager : MonoBehaviour
             player.UpdateSpawnPoint(checkpoint.GetRespawnPosition());
             checkpoint.SetActivated(true);
             UpdateUiText();
-            SaveProgressToApi();
 
-            // --- LOGIKA BARU ---
-            // Cek apakah ini adalah checkpoint TERAKHIR
             if (currentCheckpointIndex == allCheckpointsInOrder.Length - 1)
             {
-                Debug.Log("Player telah mencapai checkpoint terakhir! Siap untuk Summit.");
-                IsReadyForSummit = true;
+                GameManager.Instance.SetReadyForSummit(true);
             }
-            // ------------------
+
+            SaveProgressToApi();
         }
     }
 
-    private void SaveProgressToApi()
+    public void SaveProgressToApi()
     {
         if (string.IsNullOrEmpty(CurrentUsername)) return;
+
+        // Ambil waktu saat ini dari GameManager (yang mengambil dari TimeManager)
+        float currentTime = GameManager.Instance.GetCurrentTime();
 
         PlayerProgress progressData = new PlayerProgress
         {
             PlayerName = CurrentUsername,
-            CheckpointIndex = currentCheckpointIndex
+            CheckpointIndex = currentCheckpointIndex,
+            CurrentElapsedTime = (float)currentTime
         };
 
         StartCoroutine(ApiService.Instance.SaveProgress(progressData,
-            (result) => { Debug.Log($"Progres (CP: {result.CheckpointIndex}) berhasil disimpan ke API!"); },
+            (result) => { Debug.Log($"Progres (CP: {result.CheckpointIndex}, Time: {result.CurrentElapsedTime}) berhasil disimpan!"); },
             (error) => { Debug.LogError($"Gagal menyimpan progres ke API: {error}"); }
         ));
     }
@@ -155,17 +164,9 @@ public class CheckpointManager : MonoBehaviour
         }
     }
 
-    // --- FUNGSI BARU ---
-    // Dipanggil oleh GameManager untuk mereset status 'siap summit'
-    public void AcknowledgeSummit()
-    {
-        IsReadyForSummit = false;
-    }
-
-    // Dipanggil oleh GameManager saat reset
     public void ResetCheckpointsToStart()
     {
-        IsReadyForSummit = false; // Matikan status siap summit
+        GameManager.Instance.SetReadyForSummit(false);
 
         foreach (var cp in allCheckpointsInOrder)
         {
@@ -174,6 +175,7 @@ public class CheckpointManager : MonoBehaviour
 
         currentCheckpointIndex = -1;
         UpdateUiText();
+
         SaveProgressToApi();
     }
 }
