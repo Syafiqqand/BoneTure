@@ -156,4 +156,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   respawnMarker: {fileID: 2275399690046164360}
   activeMaterial: {fileID: 2100000, guid: 23025623dd6833c4b98c814791ca5a38, type: 2}
-  inactiveMaterial: {fileID: 2100000, guid: b7b5793d9257e2946b7bec3ee76a7e57, type: 2}
+  inactiveMaterial: {fileID: 2100000, guid: 3eb174066b3d99849b97e87f450fc92a, type: 2}

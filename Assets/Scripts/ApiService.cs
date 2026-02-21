@@ -5,12 +5,11 @@ using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-// (Pastikan kamu punya 'using GameApi.Models;' jika kamu pakai namespace)
 
 public class ApiService : MonoBehaviour
 {
     public static ApiService Instance { get; private set; }
-    private const string BASE_URL = "http://localhost:5164"; // (Pastikan port-mu benar)
+    private const string BASE_URL = "http://localhost:5164"; 
 
     private void Awake()
     {
@@ -19,7 +18,6 @@ public class ApiService : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    // --- FUNGSI LAMA (Tidak Berubah) ---
     public IEnumerator SaveProgress(PlayerProgress data, Action<PlayerProgress> onSuccess, Action<string> onError)
     {
         string url = $"{BASE_URL}/api/progress";
@@ -46,7 +44,6 @@ public class ApiService : MonoBehaviour
         }
     }
 
-    // --- FUNGSI LAMA (Tidak Berubah) ---
     public IEnumerator GetProgress(string playerName, Action<PlayerProgress> onSuccess, Action<string> onError)
     {
         string encodedPlayerName = System.Uri.EscapeDataString(playerName);
@@ -73,7 +70,6 @@ public class ApiService : MonoBehaviour
         }
     }
 
-    // --- FUNGSI LAMA (Tidak Berubah) ---
     public IEnumerator GetAllNames(Action<List<string>> onSuccess, Action<string> onError)
     {
         string url = $"{BASE_URL}/api/progress/all";
@@ -101,7 +97,7 @@ public class ApiService : MonoBehaviour
                                      Action<PlayerProgress> onSuccess,
                                      Action<string> onError)
     {
-        string url = $"{BASE_URL}/api/progress/summit"; // URL berubah
+        string url = $"{BASE_URL}/api/progress/summit"; 
 
         // Buat payload (data JSON) baru
         var payload = new { PlayerName = playerName, FinalTime = finalTime };
@@ -130,8 +126,6 @@ public class ApiService : MonoBehaviour
         }
     }
 
-    // --- FUNGSI BARU ---
-    // Mengambil leaderboard SUMMIT
     public IEnumerator GetLeaderboard(Action<List<PlayerProgress>> onSuccess,
                                      Action<string> onError, int topN = 10)
     {
@@ -155,8 +149,6 @@ public class ApiService : MonoBehaviour
         }
     }
 
-    // --- FUNGSI BARU ---
-    // Mengambil leaderboard TIME
     public IEnumerator GetLeaderboardTime(Action<List<PlayerProgress>> onSuccess,
                                          Action<string> onError, int topN = 10)
     {
